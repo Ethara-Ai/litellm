@@ -17,6 +17,7 @@ from litellm.types.llms.vertex_ai import VERTEX_CREDENTIALS_TYPES, VertexPartner
 
 from .common_utils import (
     _get_gemini_url,
+    _get_vertex_express_url,
     _get_vertex_url,
     all_gemini_url_modes,
     get_vertex_base_model_name,
@@ -24,8 +25,7 @@ from .common_utils import (
 )
 
 GOOGLE_IMPORT_ERROR_MESSAGE = (
-    "Google Cloud SDK not found. Install it with: pip install 'litellm[google]' "
-    "or pip install google-cloud-aiplatform"
+    "Google Cloud SDK not found. Install it with: pip install 'litellm[google]' or pip install google-cloud-aiplatform"
 )
 
 if TYPE_CHECKING:
@@ -76,9 +76,7 @@ class VertexBase:
             return vertex_region
         return vertex_region or "us-central1"
 
-    def load_auth(
-        self, credentials: Optional[VERTEX_CREDENTIALS_TYPES], project_id: Optional[str]
-    ) -> Tuple[Any, str]:
+    def load_auth(self, credentials: Optional[VERTEX_CREDENTIALS_TYPES], project_id: Optional[str]) -> Tuple[Any, str]:
         if credentials is not None:
             if isinstance(credentials, str):
                 _is_path = os.path.exists(
@@ -105,18 +103,14 @@ class VertexBase:
             elif isinstance(credentials, dict):
                 json_obj = credentials
             else:
-                raise ValueError(
-                    "Invalid credentials type: {}".format(type(credentials))
-                )
+                raise ValueError("Invalid credentials type: {}".format(type(credentials)))
 
             # Check if the JSON object contains Workload Identity Federation configuration
             if "type" in json_obj and json_obj["type"] == "external_account":
                 # If environment_id key contains "aws" value it corresponds to an AWS config file
                 credential_source = json_obj.get("credential_source", {})
                 environment_id = (
-                    credential_source.get("environment_id", "")
-                    if isinstance(credential_source, dict)
-                    else ""
+                    credential_source.get("environment_id", "") if isinstance(credential_source, dict) else ""
                 )
                 if isinstance(environment_id, str) and "aws" in environment_id:
                     # Check if explicit AWS params are in the JSON (bypasses metadata)
@@ -180,9 +174,7 @@ class VertexBase:
             raise ValueError("Could not resolve project_id")
 
         if not isinstance(project_id, str):
-            raise TypeError(
-                f"Expected project_id to be a str but got {type(project_id)}"
-            )
+            raise TypeError(f"Expected project_id to be a str but got {type(project_id)}")
 
         return creds, project_id
 
@@ -226,9 +218,7 @@ class VertexBase:
         except ImportError:
             raise ImportError(GOOGLE_IMPORT_ERROR_MESSAGE)
 
-        return google.oauth2.credentials.Credentials.from_authorized_user_info(
-            json_obj, scopes=scopes
-        )
+        return google.oauth2.credentials.Credentials.from_authorized_user_info(json_obj, scopes=scopes)
 
     def _credentials_from_service_account(self, json_obj, scopes):
         try:
@@ -236,9 +226,7 @@ class VertexBase:
         except ImportError:
             raise ImportError(GOOGLE_IMPORT_ERROR_MESSAGE)
 
-        return google.oauth2.service_account.Credentials.from_service_account_info(
-            json_obj, scopes=scopes
-        )
+        return google.oauth2.service_account.Credentials.from_service_account_info(json_obj, scopes=scopes)
 
     def _credentials_from_default_auth(self, scopes):
         try:
@@ -251,9 +239,7 @@ class VertexBase:
     def get_default_vertex_location(self) -> str:
         return "us-central1"
 
-    def get_api_base(
-        self, api_base: Optional[str], vertex_location: Optional[str]
-    ) -> str:
+    def get_api_base(self, api_base: Optional[str], vertex_location: Optional[str]) -> str:
         if api_base:
             return api_base
         return get_vertex_base_url(
@@ -303,9 +289,7 @@ class VertexBase:
     ) -> str:
         # Use get_vertex_region to handle global-only models
         resolved_location = self.get_vertex_region(vertex_location, model)
-        api_base = self.get_api_base(
-            api_base=custom_api_base, vertex_location=resolved_location
-        )
+        api_base = self.get_api_base(api_base=custom_api_base, vertex_location=resolved_location)
         default_api_base = VertexBase.create_vertex_url(
             vertex_location=resolved_location,
             vertex_project=vertex_project or project_id,
@@ -349,15 +333,16 @@ class VertexBase:
         self,
         credentials: Optional[VERTEX_CREDENTIALS_TYPES],
         project_id: Optional[str],
-        custom_llm_provider: Literal[
-            "vertex_ai", "vertex_ai_beta", "gemini"
-        ],  # if it's vertex_ai or gemini (google ai studio)
+        custom_llm_provider: Literal["vertex_ai", "vertex_ai_beta", "gemini"],
+        gemini_api_key: Optional[str] = None,
     ) -> Tuple[str, str]:
         """
         Returns auth token and project id
         """
         if custom_llm_provider == "gemini":
             return "", ""
+        elif gemini_api_key is not None:
+            return "", project_id or ""
         else:
             return self.get_access_token(
                 credentials=credentials,
@@ -409,9 +394,7 @@ class VertexBase:
             if custom_llm_provider == "gemini":
                 # For Gemini (Google AI Studio), construct the full path like other providers
                 if model is None:
-                    raise ValueError(
-                        "Model parameter is required for Gemini custom API base URLs"
-                    )
+                    raise ValueError("Model parameter is required for Gemini custom API base URLs")
                 url = "{}/models/{}:{}".format(api_base, model, endpoint)
                 if gemini_api_key is None:
                     raise ValueError(
@@ -482,6 +465,14 @@ class VertexBase:
                 stream=stream,
             )
             auth_header = {"x-goog-api-key": gemini_api_key}  # type: ignore[assignment]
+        elif gemini_api_key is not None:
+            url, endpoint = _get_vertex_express_url(
+                mode=mode,
+                model=model,
+                stream=stream,
+                api_key=gemini_api_key,
+            )
+            auth_header = None
         else:
             vertex_location = self.get_vertex_region(
                 vertex_region=vertex_location,
@@ -540,8 +531,7 @@ class VertexBase:
             The original error if reauthentication fails
         """
         verbose_logger.debug(
-            f"Handling reauthentication for project_id: {project_id}. "
-            f"Clearing cache and retrying once."
+            f"Handling reauthentication for project_id: {project_id}. Clearing cache and retrying once."
         )
 
         # Clear the cached credentials
@@ -588,20 +578,14 @@ class VertexBase:
         """
 
         # Convert dict credentials to string for caching
-        cache_credentials = (
-            json.dumps(credentials) if isinstance(credentials, dict) else credentials
-        )
+        cache_credentials = json.dumps(credentials) if isinstance(credentials, dict) else credentials
         credential_cache_key = (cache_credentials, project_id)
         _credentials: Optional[GoogleCredentialsObject] = None
 
-        verbose_logger.debug(
-            f"Checking cached credentials for project_id: {project_id}"
-        )
+        verbose_logger.debug(f"Checking cached credentials for project_id: {project_id}")
 
         if credential_cache_key in self._credentials_project_mapping:
-            verbose_logger.debug(
-                f"Cached credentials found for project_id: {project_id}."
-            )
+            verbose_logger.debug(f"Cached credentials found for project_id: {project_id}.")
             # Retrieve both credentials and cached project_id
             cached_entry = self._credentials_project_mapping[credential_cache_key]
             verbose_logger.debug("cached_entry: %s", cached_entry)
@@ -610,9 +594,7 @@ class VertexBase:
             else:
                 # Backward compatibility with old cache format
                 _credentials = cached_entry
-                credential_project_id = _credentials.quota_project_id or getattr(
-                    _credentials, "project_id", None
-                )
+                credential_project_id = _credentials.quota_project_id or getattr(_credentials, "project_id", None)
             verbose_logger.debug(
                 "Using cached credentials for project_id: %s",
                 credential_project_id,
@@ -624,9 +606,7 @@ class VertexBase:
             )
 
             try:
-                _credentials, credential_project_id = self.load_auth(
-                    credentials=credentials, project_id=project_id
-                )
+                _credentials, credential_project_id = self.load_auth(credentials=credentials, project_id=project_id)
             except Exception as e:
                 verbose_logger.exception(
                     f"Failed to load vertex credentials. Check to see if credentials containing partial/invalid information. Error: {str(e)}"
@@ -647,11 +627,7 @@ class VertexBase:
 
         ## VALIDATE CREDENTIALS
         verbose_logger.debug(f"Validating credentials for project_id: {project_id}")
-        if (
-            project_id is None
-            and credential_project_id is not None
-            and isinstance(credential_project_id, str)
-        ):
+        if project_id is None and credential_project_id is not None and isinstance(credential_project_id, str):
             project_id = credential_project_id
             # Update cache with resolved project_id for future lookups
             resolved_cache_key = (cache_credentials, project_id)
@@ -667,9 +643,7 @@ class VertexBase:
 
         if _credentials.expired:
             try:
-                verbose_logger.debug(
-                    f"Credentials expired, refreshing for project_id: {project_id}"
-                )
+                verbose_logger.debug(f"Credentials expired, refreshing for project_id: {project_id}")
                 self.refresh_auth(_credentials)
                 self._credentials_project_mapping[credential_cache_key] = (
                     _credentials,
@@ -704,15 +678,16 @@ class VertexBase:
         self,
         credentials: Optional[VERTEX_CREDENTIALS_TYPES],
         project_id: Optional[str],
-        custom_llm_provider: Literal[
-            "vertex_ai", "vertex_ai_beta", "gemini"
-        ],  # if it's vertex_ai or gemini (google ai studio)
+        custom_llm_provider: Literal["vertex_ai", "vertex_ai_beta", "gemini"],
+        gemini_api_key: Optional[str] = None,
     ) -> Tuple[str, str]:
         """
         Async version of _ensure_access_token
         """
         if custom_llm_provider == "gemini":
             return "", ""
+        elif gemini_api_key is not None:
+            return "", project_id or ""
         else:
             try:
                 return await asyncify(self.get_access_token)(
@@ -722,9 +697,7 @@ class VertexBase:
             except Exception as e:
                 raise e
 
-    def set_headers(
-        self, auth_header: Optional[str], extra_headers: Optional[dict]
-    ) -> dict:
+    def set_headers(self, auth_header: Optional[str], extra_headers: Optional[dict]) -> dict:
         headers = {
             "Content-Type": "application/json",
         }

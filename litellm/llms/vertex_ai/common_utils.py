@@ -121,9 +121,7 @@ def get_supports_system_message(
         _custom_llm_provider = custom_llm_provider
         if custom_llm_provider == "vertex_ai_beta":
             _custom_llm_provider = "vertex_ai"
-        supports_system_message = supports_system_messages(
-            model=model, custom_llm_provider=_custom_llm_provider
-        )
+        supports_system_message = supports_system_messages(model=model, custom_llm_provider=_custom_llm_provider)
 
         # Vertex Models called in the `/gemini` request/response format also support system messages
         if litellm.VertexGeminiConfig._is_model_gemini_spec_model(model):
@@ -146,9 +144,7 @@ def get_supports_response_schema(
     if custom_llm_provider == "vertex_ai_beta":
         _custom_llm_provider = "vertex_ai"
 
-    _supports_response_schema = supports_response_schema(
-        model=model, custom_llm_provider=_custom_llm_provider
-    )
+    _supports_response_schema = supports_response_schema(model=model, custom_llm_provider=_custom_llm_provider)
 
     return _supports_response_schema
 
@@ -183,9 +179,7 @@ def supports_response_json_schema(model: str) -> bool:
 
 from typing import Literal, Optional
 
-all_gemini_url_modes = Literal[
-    "chat", "embedding", "batch_embedding", "image_generation", "count_tokens"
-]
+all_gemini_url_modes = Literal["chat", "embedding", "batch_embedding", "image_generation", "count_tokens"]
 
 
 def get_vertex_base_model_name(model: str) -> str:
@@ -342,6 +336,34 @@ def _get_vertex_url(
     return url, endpoint
 
 
+VERTEX_EXPRESS_BASE_URL = "https://aiplatform.googleapis.com"
+
+
+def _get_vertex_express_url(
+    mode: all_gemini_url_modes,
+    model: str,
+    stream: Optional[bool],
+    api_key: str,
+) -> Tuple[str, str]:
+    model = litellm.VertexGeminiConfig.get_model_for_vertex_ai_url(model=model)
+
+    if mode == "chat":
+        endpoint = "streamGenerateContent" if stream else "generateContent"
+        url = f"{VERTEX_EXPRESS_BASE_URL}/v1/publishers/google/models/{model}:{endpoint}?key={api_key}"
+        if stream:
+            url += "&alt=sse"
+    elif mode == "embedding":
+        endpoint = "predict"
+        url = f"{VERTEX_EXPRESS_BASE_URL}/v1/publishers/google/models/{model}:{endpoint}?key={api_key}"
+    elif mode == "count_tokens":
+        endpoint = "countTokens"
+        url = f"{VERTEX_EXPRESS_BASE_URL}/v1/publishers/google/models/{model}:{endpoint}?key={api_key}"
+    else:
+        raise ValueError(f"Unsupported mode for Vertex AI Express: {mode}")
+
+    return url, endpoint
+
+
 def _get_gemini_url(
     mode: all_gemini_url_modes,
     model: str,
@@ -416,9 +438,7 @@ def _check_text_in_content(parts: List[PartType]) -> bool:
 def _fix_enum_empty_strings(schema, depth=0):
     """Fix empty strings in enum values by replacing them with None. Gemini doesn't accept empty strings in enums."""
     if depth > DEFAULT_MAX_RECURSE_DEPTH:
-        raise ValueError(
-            f"Max depth of {DEFAULT_MAX_RECURSE_DEPTH} exceeded while processing schema."
-        )
+        raise ValueError(f"Max depth of {DEFAULT_MAX_RECURSE_DEPTH} exceeded while processing schema.")
 
     if "enum" in schema and isinstance(schema["enum"], list):
         schema["enum"] = [None if value == "" else value for value in schema["enum"]]
@@ -442,9 +462,7 @@ def _fix_enum_types(schema, depth=0):
     include a string type), remove the enum to avoid provider validation errors.
     """
     if depth > DEFAULT_MAX_RECURSE_DEPTH:
-        raise ValueError(
-            f"Max depth of {DEFAULT_MAX_RECURSE_DEPTH} exceeded while processing schema."
-        )
+        raise ValueError(f"Max depth of {DEFAULT_MAX_RECURSE_DEPTH} exceeded while processing schema.")
 
     if not isinstance(schema, dict):
         return
@@ -577,11 +595,7 @@ def _filter_anyof_fields(schema_dict: Dict[str, Any]) -> Dict[str, Any]:
 
     if isinstance(schema_dict, dict) and schema_dict.get("anyOf"):
         any_of = schema_dict["anyOf"]
-        if (
-            (title or description)
-            and isinstance(any_of, list)
-            and all(isinstance(item, dict) for item in any_of)
-        ):
+        if (title or description) and isinstance(any_of, list) and all(isinstance(item, dict) for item in any_of):
             for item in any_of:
                 if title:
                     item["title"] = title
@@ -608,9 +622,7 @@ def process_items(schema, depth=0):
                         process_items(item, depth + 1)
 
 
-def set_schema_property_ordering(
-    schema: Dict[str, Any], depth: int = 0
-) -> Dict[str, Any]:
+def set_schema_property_ordering(schema: Dict[str, Any], depth: int = 0) -> Dict[str, Any]:
     """
     vertex ai and generativeai apis order output of fields alphabetically, unless you specify the order.
     python dicts retain order, so we just use that. Note that this field only applies to structured outputs, and not tools.
@@ -637,9 +649,7 @@ def set_schema_property_ordering(
     return schema
 
 
-def filter_schema_fields(
-    schema_dict: Dict[str, Any], valid_fields: Set[str], processed=None
-) -> Dict[str, Any]:
+def filter_schema_fields(schema_dict: Dict[str, Any], valid_fields: Set[str], processed=None) -> Dict[str, Any]:
     """
     Recursively filter a schema dictionary to keep only valid fields.
     """
@@ -662,10 +672,7 @@ def filter_schema_fields(
             continue
 
         if key == "properties" and isinstance(value, dict):
-            result[key] = {
-                k: filter_schema_fields(v, valid_fields, processed)
-                for k, v in value.items()
-            }
+            result[key] = {k: filter_schema_fields(v, valid_fields, processed) for k, v in value.items()}
         elif key == "format":
             if value in {"enum", "date-time"}:
                 result[key] = value
@@ -675,7 +682,8 @@ def filter_schema_fields(
             result[key] = filter_schema_fields(value, valid_fields, processed)
         elif key == "anyOf" and isinstance(value, list):
             result[key] = [
-                filter_schema_fields(item, valid_fields, processed) for item in value  # type: ignore
+                filter_schema_fields(item, valid_fields, processed)
+                for item in value  # type: ignore
             ]
         else:
             result[key] = value
@@ -704,19 +712,14 @@ def convert_anyof_null_to_nullable(schema, depth=0):
         if len(anyof) == 0:
             # Edge case: response schema with only null type present is invalid in Vertex AI
             raise ValueError(
-                "Invalid input: AnyOf schema with only null type is not supported. "
-                "Please provide a non-null type."
+                "Invalid input: AnyOf schema with only null type is not supported. Please provide a non-null type."
             )
 
         if contains_null:
             # set all types to nullable following guidance found here: https://cloud.google.com/vertex-ai/generative-ai/docs/samples/generativeaionvertexai-gemini-controlled-generation-response-schema-3#generativeaionvertexai_gemini_controlled_generation_response_schema_3-python
             for atype in anyof:
                 # Remove items field if type is array and items is empty
-                if (
-                    atype.get("type") == "array"
-                    and "items" in atype
-                    and not atype["items"]
-                ):
+                if atype.get("type") == "array" and "items" in atype and not atype["items"]:
                     atype.pop("items")
                 atype["nullable"] = True
 
@@ -908,9 +911,7 @@ def get_vertex_model_id_from_url(url: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
-def replace_project_and_location_in_route(
-    requested_route: str, vertex_project: str, vertex_location: str
-) -> str:
+def replace_project_and_location_in_route(requested_route: str, vertex_project: str, vertex_location: str) -> str:
     """
     Replace project and location values in the route with the provided values
     """
@@ -943,9 +944,7 @@ def construct_target_url(
     new_base_url = httpx.URL(base_url)
     if "locations" in requested_route:  # contains the target project id + location
         if vertex_project and vertex_location:
-            requested_route = replace_project_and_location_in_route(
-                requested_route, vertex_project, vertex_location
-            )
+            requested_route = replace_project_and_location_in_route(requested_route, vertex_project, vertex_location)
         return new_base_url.copy_with(path=requested_route)
 
     """
@@ -966,14 +965,31 @@ def construct_target_url(
         vertex_version = "v1beta1"
         requested_route = requested_route.replace("/v1beta1/", "/", 1)
 
-    base_requested_route = "{}/projects/{}/locations/{}".format(
-        vertex_version, vertex_project, vertex_location
-    )
+    base_requested_route = "{}/projects/{}/locations/{}".format(vertex_version, vertex_project, vertex_location)
 
     updated_requested_route = "/" + base_requested_route + requested_route
 
     updated_url = new_base_url.copy_with(path=updated_requested_route)
     return updated_url
+
+
+
+def is_global_only_vertex_model(model: str) -> bool:
+    """
+    Check if a model is only available in the global region.
+
+    Args:
+        model: The model name to check
+
+    Returns:
+        True if the model is only available in global region, False otherwise
+    """
+    from litellm.utils import get_supported_regions
+
+    supported_regions = get_supported_regions(model=model, custom_llm_provider="vertex_ai")
+    if supported_regions is None:
+        return False
+    return "global" in supported_regions
 
 
 class VertexAIModelInfo(BaseLLMModelInfo):
@@ -999,9 +1015,7 @@ class VertexAIModelInfo(BaseLLMModelInfo):
     ) -> dict:
         raise NotImplementedError("Vertex AI models are not supported yet")
 
-    def get_models(
-        self, api_key: Optional[str] = None, api_base: Optional[str] = None
-    ) -> List[str]:
+    def get_models(self, api_key: Optional[str] = None, api_base: Optional[str] = None) -> List[str]:
         """
         Returns a list of models supported by this provider.
         """
@@ -1056,9 +1070,7 @@ class VertexAITokenCounter(BaseTokenCounter):
         )
 
         deployment = deployment or {}
-        count_tokens_params_request = copy.deepcopy(
-            deployment.get("litellm_params", {})
-        )
+        count_tokens_params_request = copy.deepcopy(deployment.get("litellm_params", {}))
 
         # Check if this is a partner model (Claude, Mistral, etc.)
         if VertexAIPartnerModels.is_vertex_partner_model(model_to_use):
