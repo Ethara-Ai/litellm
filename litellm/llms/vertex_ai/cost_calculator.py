@@ -51,7 +51,7 @@ def cost_router(
         call_type == "embedding" or call_type == "aembedding"
     ):
         return "cost_per_token"
-    elif custom_llm_provider == "vertex_ai" and ("gemini-2" in model):
+    elif custom_llm_provider == "vertex_ai" and ("gemini-2" in model or "gemini-3" in model):
         return "cost_per_token"
     return "cost_per_character"
 
