@@ -7191,6 +7191,7 @@
         "supports_reasoning": true
     },
     "bedrock/moonshotai.kimi-k2.5": {
+        "cache_read_input_token_cost": 1e-07,
         "input_cost_per_token": 6e-07,
         "litellm_provider": "bedrock",
         "max_input_tokens": 262144,
@@ -7200,6 +7201,7 @@
         "output_cost_per_token": 3.03e-06,
         "source": "https://platform.moonshot.ai/docs/guide/kimi-k2-5-quickstart",
         "supports_function_calling": true,
+        "supports_prompt_caching": true,
         "supports_reasoning": true,
         "supports_system_messages": true,
         "supports_tool_choice": true,
@@ -8070,6 +8072,7 @@
         "supports_reasoning": true
     },
     "bedrock/us-east-1/moonshotai.kimi-k2.5": {
+        "cache_read_input_token_cost": 1e-07,
         "input_cost_per_token": 6e-07,
         "litellm_provider": "bedrock",
         "max_input_tokens": 262144,
@@ -8078,6 +8081,7 @@
         "mode": "chat",
         "output_cost_per_token": 3e-06,
         "supports_function_calling": true,
+        "supports_prompt_caching": true,
         "supports_system_messages": true,
         "supports_tool_choice": true,
         "supports_vision": true,
@@ -23653,6 +23657,7 @@
         "supports_native_structured_output": true
     },
     "moonshotai.kimi-k2.5": {
+        "cache_read_input_token_cost": 1e-07,
         "input_cost_per_token": 6e-07,
         "litellm_provider": "bedrock_converse",
         "max_input_tokens": 262144,
@@ -23661,6 +23666,7 @@
         "mode": "chat",
         "output_cost_per_token": 3e-06,
         "supports_function_calling": true,
+        "supports_prompt_caching": true,
         "supports_system_messages": true,
         "supports_tool_choice": true,
         "supports_vision": true,
