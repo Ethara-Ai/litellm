@@ -1817,7 +1817,13 @@ class CustomStreamWrapper:
         if _finish_reason is not None:
             model_response.choices[0].finish_reason = _finish_reason
         else:
-            model_response.choices[0].finish_reason = "stop"
+            # Some providers (e.g. Bedrock Converse) silently end the stream
+            # without sending a stop reason when max_tokens is hit.
+            # Detect this by comparing completion_tokens against the requested
+            # token limit and synthesize finish_reason="length".
+            model_response.choices[0].finish_reason = (
+                self._infer_finish_reason_from_usage()
+            )
 
         ## if tool use
         if (
@@ -1825,6 +1831,33 @@ class CustomStreamWrapper:
         ):  # don't overwrite for other - potential error finish reasons
             model_response.choices[0].finish_reason = "tool_calls"
         return model_response
+
+    def _infer_finish_reason_from_usage(self) -> str:
+        """
+        Infer finish_reason when the provider did not send one.
+
+        If the stream produced completion_tokens >= the requested max token
+        limit, the response was almost certainly truncated → return "length".
+        Otherwise fall back to "stop".
+        """
+        try:
+            optional_params: dict = self.logging_obj.model_call_details.get(
+                "optional_params", {}
+            )
+            # Different providers store the limit under different keys after
+            # transformation.  Check all known variants.
+            max_tokens: Optional[int] = (
+                optional_params.get("max_tokens")
+                or optional_params.get("max_completion_tokens")
+                or optional_params.get("maxTokens")
+            )
+            if max_tokens is not None:
+                usage = calculate_total_usage(chunks=self.chunks)
+                if usage.completion_tokens >= max_tokens:
+                    return "length"
+        except Exception:
+            pass
+        return "stop"
 
     def __next__(self) -> "ModelResponseStream":  # noqa: PLR0915
         cache_hit = False

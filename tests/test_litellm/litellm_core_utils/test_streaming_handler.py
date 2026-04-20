@@ -2091,3 +2091,97 @@ def test_gemini_legacy_vertex_tool_calls_finish_reason_with_stop_enum():
         f"Expected 'tool_calls' but got {final.choices[0].finish_reason!r}. "
         "STOP enum was not normalised through map_finish_reason()."
     )
+
+
+class TestInferFinishReasonFromUsage:
+    def _make_wrapper_with_max_tokens(
+        self, max_tokens_key: str, max_tokens_value: int
+    ) -> CustomStreamWrapper:
+        logging_obj = MagicMock()
+        logging_obj.model_call_details = {
+            "optional_params": {max_tokens_key: max_tokens_value}
+        }
+        wrapper = CustomStreamWrapper(
+            completion_stream=None,
+            model="bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0",
+            logging_obj=logging_obj,
+            custom_llm_provider="bedrock",
+        )
+        return wrapper
+
+    def _add_usage_chunk(self, wrapper: CustomStreamWrapper, completion_tokens: int):
+        chunk = ModelResponseStream(
+            id="test",
+            created=1742056047,
+            model=None,
+            object="chat.completion.chunk",
+            choices=[
+                StreamingChoices(
+                    finish_reason=None,
+                    index=0,
+                    delta=Delta(content="text"),
+                )
+            ],
+            usage=Usage(
+                prompt_tokens=100,
+                completion_tokens=completion_tokens,
+                total_tokens=100 + completion_tokens,
+            ),
+        )
+        wrapper.chunks.append(chunk)
+
+    def test_returns_length_when_completion_tokens_equals_max_tokens(self):
+        wrapper = self._make_wrapper_with_max_tokens("maxTokens", 500)
+        self._add_usage_chunk(wrapper, 500)
+        assert wrapper._infer_finish_reason_from_usage() == "length"
+
+    def test_returns_length_when_completion_tokens_exceeds_max_tokens(self):
+        wrapper = self._make_wrapper_with_max_tokens("maxTokens", 500)
+        self._add_usage_chunk(wrapper, 510)
+        assert wrapper._infer_finish_reason_from_usage() == "length"
+
+    def test_returns_stop_when_completion_tokens_below_max_tokens(self):
+        wrapper = self._make_wrapper_with_max_tokens("maxTokens", 500)
+        self._add_usage_chunk(wrapper, 200)
+        assert wrapper._infer_finish_reason_from_usage() == "stop"
+
+    def test_returns_stop_when_no_max_tokens_in_params(self):
+        logging_obj = MagicMock()
+        logging_obj.model_call_details = {"optional_params": {}}
+        wrapper = CustomStreamWrapper(
+            completion_stream=None,
+            model="bedrock/model",
+            logging_obj=logging_obj,
+            custom_llm_provider="bedrock",
+        )
+        self._add_usage_chunk(wrapper, 500)
+        assert wrapper._infer_finish_reason_from_usage() == "stop"
+
+    def test_works_with_max_tokens_key(self):
+        wrapper = self._make_wrapper_with_max_tokens("max_tokens", 100)
+        self._add_usage_chunk(wrapper, 100)
+        assert wrapper._infer_finish_reason_from_usage() == "length"
+
+    def test_works_with_max_completion_tokens_key(self):
+        wrapper = self._make_wrapper_with_max_tokens("max_completion_tokens", 100)
+        self._add_usage_chunk(wrapper, 100)
+        assert wrapper._infer_finish_reason_from_usage() == "length"
+
+    def test_returns_stop_when_no_usage_chunks(self):
+        wrapper = self._make_wrapper_with_max_tokens("maxTokens", 500)
+        assert wrapper._infer_finish_reason_from_usage() == "stop"
+
+    def test_finish_reason_handler_uses_length_for_truncated_stream(self):
+        wrapper = self._make_wrapper_with_max_tokens("maxTokens", 200)
+        self._add_usage_chunk(wrapper, 200)
+        wrapper.received_finish_reason = None
+        wrapper.intermittent_finish_reason = None
+        result = wrapper.finish_reason_handler()
+        assert result.choices[0].finish_reason == "length"
+
+    def test_finish_reason_handler_preserves_explicit_finish_reason(self):
+        wrapper = self._make_wrapper_with_max_tokens("maxTokens", 200)
+        self._add_usage_chunk(wrapper, 200)
+        wrapper.received_finish_reason = "stop"
+        result = wrapper.finish_reason_handler()
+        assert result.choices[0].finish_reason == "stop"
